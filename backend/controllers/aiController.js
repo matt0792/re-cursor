@@ -1,0 +1,784 @@
+import { OpenAI } from "openai";
+import dotenv from "dotenv";
+import axios from "axios";
+import { VM } from "vm2";
+
+dotenv.config();
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Memory storage object
+const userMemory = {};
+
+// Function to record a fact about the user
+const recordFact = (userId, fact) => {
+  try {
+    if (!userId || typeof userId !== "string") {
+      throw new Error("Invalid userId: userId must be a non-empty string.");
+    }
+
+    if (!fact || typeof fact !== "string") {
+      throw new Error("Invalid fact: fact must be a non-empty string.");
+    }
+
+    // Initialize user memory if it doesn't exist
+    if (!userMemory[userId]) {
+      userMemory[userId] = [];
+    }
+
+    // Record the fact
+    userMemory[userId].push(fact);
+
+    return `Fact recorded successfully for user ${userId}.`;
+  } catch (error) {
+    console.error("Error recording fact:", error);
+    return `Error recording fact: ${error.message}`;
+  }
+};
+
+// Function to retrieve facts about the user
+const retrieveFacts = (userId) => {
+  try {
+    if (!userId || typeof userId !== "string") {
+      throw new Error("Invalid userId: userId must be a non-empty string.");
+    }
+
+    // Check if the user has any recorded facts
+    if (!userMemory[userId] || userMemory[userId].length === 0) {
+      return `No facts recorded for user ${userId}.`;
+    }
+
+    // Return the list of facts
+    return `Facts for user ${userId}:\n${userMemory[userId]
+      .map((fact, index) => `${index + 1}. ${fact}`)
+      .join("\n")}`;
+  } catch (error) {
+    console.error("Error retrieving facts:", error);
+    return `Error retrieving facts: ${error.message}`;
+  }
+};
+
+// Function to create a new tool dynamically
+const createTool = (metadata, code) => {
+  try {
+    // Validate metadata
+    if (!metadata.name || !metadata.description || !metadata.parameters) {
+      throw new Error(
+        "Invalid metadata: name, description, and parameters are required."
+      );
+    }
+
+    // Sanitize the function name
+    const sanitizedName = metadata.name
+      .replace(/\s+/g, "_") // Replace spaces with underscores
+      .replace(/[^a-zA-Z0-9_-]/g, ""); // Remove invalid characters
+
+    // Validate code
+    if (typeof code !== "string" || code.trim() === "") {
+      throw new Error("Invalid code: code must be a non-empty string.");
+    }
+
+    // Ensure the parameters schema is valid
+    if (
+      !metadata.parameters.type ||
+      metadata.parameters.type !== "object" ||
+      !metadata.parameters.properties ||
+      typeof metadata.parameters.properties !== "object"
+    ) {
+      throw new Error(
+        "Invalid parameters schema: type must be 'object' and properties must be defined."
+      );
+    }
+
+    // Create a sandboxed function with improved input validation
+    const sandbox = new VM({ sandbox: { console } });
+    const func = sandbox.run(`(args) => { 
+          try {
+            // Ensure that args is an object
+            const safeArgs = typeof args === 'object' && args !== null ? args : {};
+            
+            // Convert function to string to prevent any code injection and ensure it executes correctly
+            const toolFunction = ${code};
+            
+            if (typeof toolFunction !== 'function') {
+              throw new Error('The provided code does not evaluate to a function');
+            }
+            
+            // Execute the provided code with safe arguments
+            const result = toolFunction(safeArgs);
+            
+            // Ensure the result is always a string
+            return result === undefined ? "No result" : 
+                   result === null ? "Null result" : 
+                   typeof result === 'object' ? JSON.stringify(result) : 
+                   String(result);
+          } catch (error) {
+            console.error("Tool execution error:", error);
+            return String(\`Error executing tool: \${error.message}\`);
+          }
+        }`);
+
+    // Add the new tool to the tools array
+    tools.push({
+      type: "function",
+      function: {
+        name: sanitizedName, // Use the sanitized name
+        description: metadata.description,
+        parameters: metadata.parameters,
+        func, // Store the function for execution
+      },
+    });
+
+    return "Tool created successfully.";
+  } catch (error) {
+    console.error("Tool creation error:", error);
+    return `Error creating tool: ${error.message}`;
+  }
+};
+
+// Function to get current time
+const getCurrentTime = () => {
+  console.log("Got current time");
+  return new Date().toISOString();
+};
+
+// Placeholder function for sending emails
+const sendEmail = (recipient, subject, body) => {
+  return `Email to ${recipient} with subject "${subject}" was sent (not really, just a placeholder).`;
+};
+
+// evaulate a mathematical expression
+const calculateMath = (expression) => {
+  try {
+    const result = Function(
+      '"use strict"; return (' +
+        expression.replace(/([a-zA-Z]+)/g, "Math.$1") +
+        ")"
+    )();
+    return result;
+  } catch (error) {
+    return `Error evaluating expression: ${error.message}`;
+  }
+};
+
+// Function to get the top headlines from NewsAPI
+const getHeadlines = async () => {
+  try {
+    const response = await axios.get(
+      `https://newsapi.org/v2/top-headlines?country=us&apiKey=${process.env.NEWSAPI_KEY}`
+    );
+    const headlines = response.data.articles.map((article) => article.title); // Extract article titles
+    return headlines;
+  } catch (error) {
+    console.error("Error fetching headlines:", error);
+    return "Failed to fetch headlines.";
+  }
+};
+
+const getWeather = async (location) => {
+  try {
+    const response = await axios.get(
+      `http://api.weatherapi.com/v1/current.json?key=${process.env.WEATHERAPI_KEY}&q=${location}&aqi=no`
+    );
+
+    const currentWeather = {
+      location: response.data.location.name,
+      region: response.data.location.region,
+      country: response.data.location.country,
+      localTime: response.data.location.localtime,
+      lastUpdated: response.data.current.last_updated,
+      temperature: response.data.current.temp_c,
+      is_day: response.data.current.is_day,
+      wind: response.data.current.wind_kph,
+      wind_dir: response.data.current.wind_dir,
+      precipitation: response.data.current.precip_mm,
+      humidity: response.data.current.humidity,
+      feels_like: response.data.current.feelslike_c,
+      visibility: response.data.current.vis_km,
+      uv: response.data.current.uv,
+      gust: response.data.current.gust_kph,
+    };
+
+    const weatherString = `
+    Current weather for ${currentWeather.location}, ${currentWeather.region}, ${currentWeather.country}:
+    - Temperature: ${currentWeather.temperature}°C (feels like: ${currentWeather.feels_like}°C)
+    - Condition: ${response.data.current.condition.text}
+    - Wind: ${currentWeather.wind} kph, direction: ${currentWeather.wind_dir}
+    - Humidity: ${currentWeather.humidity}%
+    - Precipitation: ${currentWeather.precipitation} mm
+    - Visibility: ${currentWeather.visibility} km
+    - UV Index: ${currentWeather.uv}
+    - Last updated: ${currentWeather.lastUpdated}
+        `.trim();
+
+    return weatherString;
+  } catch (error) {
+    console.error("Error fetching weather:", error);
+    return "Failed to fetch weather.";
+  }
+};
+
+// Self-deliberation tool execution function
+const selfDeliberation = async (topic) => {
+  console.log(`AI deliberating on the topic: ${topic}`);
+
+  // First step: Generate key questions to explore
+  const questionsResponse = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Identify 3 key questions that need to be answered to fully understand: "${topic}". 
+          Return only the questions in a JSON array format like: ["Question 1?", "Question 2?", ...]`,
+      },
+    ],
+    response_format: { type: "json_object" },
+  });
+
+  // Parse the questions
+  const questions = JSON.parse(
+    questionsResponse.choices[0].message.content
+  ).questions;
+
+  // Second step: Answer each question with detailed analysis
+  const answers = [];
+  for (const question of questions) {
+    const answerResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are analyzing the question: "${question}" as part of understanding "${topic}".
+            Provide a thoughtful analysis with evidence and reasoning.`,
+        },
+      ],
+    });
+
+    answers.push({
+      question,
+      answer: answerResponse.choices[0].message.content,
+    });
+  }
+
+  // Final step: Synthesize the findings into a comprehensive analysis
+  const synthesisResponse = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Synthesize the following analyses into a comprehensive understanding of "${topic}". Use Markdown formatting.`,
+      },
+      {
+        role: "user",
+        content: JSON.stringify(answers),
+      },
+    ],
+  });
+
+  // Return the full chain of thought plus final synthesis
+  return `# Analysis of: ${topic}
+  
+  ## Key Questions Explored
+  ${questions.map((q) => `- ${q}`).join("\n")}
+  
+  ## Detailed Analysis
+  ${answers.map((a) => `### ${a.question}\n${a.answer}`).join("\n\n")}
+  
+  ## Synthesis
+  ${synthesisResponse.choices[0].message.content}`;
+};
+
+// Define available tools
+const tools = [
+  {
+    type: "function",
+    function: {
+      name: "getCurrentTime",
+      description: "Get the current date and time in ISO format",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "sendEmail",
+      description: "Send an email",
+      parameters: {
+        type: "object",
+        properties: {
+          recipient: { type: "string", description: "The email recipient" },
+          subject: { type: "string", description: "The email subject" },
+          body: { type: "string", description: "The email content" },
+        },
+        required: ["recipient", "subject", "body"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "calculateMath",
+      description: "Evaluate a math expression",
+      parameters: {
+        type: "object",
+        properties: {
+          expression: {
+            type: "string",
+            description: "The mathematical expression to evaluate",
+          },
+        },
+        required: ["expression"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "getHeadlines",
+      description: "Fetch the latest top headlines",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "selfDeliberation",
+      description:
+        "Recursively analyze a topic. Use this tool iteratively to break down complex ideas into subtopics or deepen analysis. Ask for user confirmation before use, and warn that it may take a while.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: {
+            type: "string",
+            description: "The specific subtopic or angle to explore next",
+          },
+        },
+        required: ["topic"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "createTool",
+      description:
+        "Dynamically define a new tool. Must always accept and output a string.",
+      parameters: {
+        type: "object",
+        properties: {
+          metadata: {
+            type: "object",
+            description:
+              "Metadata for the new tool (name, description, parameters)",
+            properties: {
+              name: { type: "string", description: "The name of the new tool" },
+              description: {
+                type: "string",
+                description: "The description of the new tool",
+              },
+              parameters: {
+                type: "object",
+                description: "The parameters for the new tool",
+                properties: {
+                  type: {
+                    type: "string",
+                    description: "The type of the parameters object",
+                  },
+                  properties: {
+                    type: "object",
+                    description: "The properties of the parameters object",
+                  },
+                  required: {
+                    type: "array",
+                    description: "The required parameters",
+                    items: { type: "string" },
+                  },
+                },
+                required: ["type", "properties"],
+              },
+            },
+            required: ["name", "description", "parameters"],
+          },
+          code: {
+            type: "string",
+            description:
+              "The JavaScript code for the new tool. ALWAYS make sure that code is complete and functional",
+          },
+        },
+        required: ["metadata", "code"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "getWeather",
+      description:
+        "Get the current weather for a specific location (city) in metric units.",
+      parameters: {
+        type: "object",
+        properties: {
+          location: {
+            type: "string",
+            description: "The location to get weather for",
+          },
+        },
+        required: ["location"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "recordFact",
+      description: "Record an important or interesting fact about the user.",
+      parameters: {
+        type: "object",
+        properties: {
+          userId: {
+            type: "string",
+            description: "The unique identifier for the user",
+          },
+          fact: {
+            type: "string",
+            description: "The fact to record about the user",
+          },
+        },
+        required: ["userId", "fact"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "retrieveFacts",
+      description: "Retrieve all recorded facts about the user.",
+      parameters: {
+        type: "object",
+        properties: {
+          userId: {
+            type: "string",
+            description: "The unique identifier for the user",
+          },
+        },
+        required: ["userId"],
+      },
+    },
+  },
+];
+
+// let activeToolStore = [];
+
+// Function to execute tool calls
+const executeTool = async (
+  toolName,
+  args,
+  senderId,
+  senderName,
+  senderRole,
+  res,
+  activeTools
+) => {
+  try {
+    // if (!activeToolStore.includes(toolName)) {
+    //   return `The tool "${toolName}" is turned off and cannot be used.`;
+    // }
+
+    switch (toolName) {
+      case "getCurrentTime":
+        return String(getCurrentTime()) || "Unknown time";
+      case "sendEmail":
+        return (
+          String(sendEmail(args.recipient, args.subject, args.body)) ||
+          "Failed to send email"
+        );
+      case "calculateMath":
+        return String(calculateMath(args.expression));
+      case "getHeadlines":
+        return String(await getHeadlines()) || "Failed to get headlines";
+      case "selfDeliberation":
+        return String(await selfDeliberation(args.topic));
+      case "getWeather":
+        return String(await getWeather(args.location));
+      case "createTool":
+        return String(createTool(args.metadata, args.code));
+      case "recordFact":
+        return String(recordFact(args.userId, args.fact));
+      case "retrieveFacts":
+        return String(retrieveFacts(args.userId));
+      default:
+        // Handle dynamically created tools
+        const tool = tools.find(
+          (t) => t.function && t.function.name === toolName
+        );
+        if (tool && tool.function.func) {
+          // Validate args to ensure it's an object
+          const safeArgs =
+            typeof args === "object" && args !== null ? args : {};
+          const result = await tool.function.func(safeArgs);
+          return String(result || "No result returned");
+        }
+        return "Unknown tool";
+    }
+  } catch (error) {
+    console.error(`Error executing tool ${toolName}:`, error);
+    return `Error executing ${toolName}: ${error.message}`;
+  }
+};
+
+const chatHistory = {};
+
+// const updateActiveTools = (activeTools) => {
+//   if (Array.isArray(activeTools)) {
+//     activeToolStore = activeTools;
+//   }
+// };
+
+// console.log(activeToolStore);
+
+// Main AI function
+export const answer = async (req, res) => {
+  try {
+    const { senderId, senderName, senderRole, message, activeTools } = req.body;
+
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({ error: "Message must be a valid string" });
+    }
+
+    // Initialize chat history if it doesn't exist
+    if (!chatHistory[senderId]) {
+      chatHistory[senderId] = [];
+    }
+
+    // Append user message to history
+    chatHistory[senderId].push({ role: senderRole, content: message });
+
+    let response;
+    let retryCount = 0;
+    const maxRetries = 3; // Maximum number of retries
+
+    while (retryCount < maxRetries) {
+      try {
+        response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: `You are an AI assistant capable of using tools. Always execute tools if needed before responding. 
+    If there is no tool available for the user's request, you can create it with the createTool tool.
+      
+      When creating a new tool, follow these guidelines:
+      1. Ensure your tool function ALWAYS handles input validation
+      2. ALWAYS ensure your function returns a string or converts its result to a string
+      3. Properly handle errors with try/catch blocks
+      4. NEVER use placeholder logic or comments when creating a tool
+      5. Make sure tool code is complete and functional
+      
+      Example of proper tool code:
+      (args) => {
+        try {
+          // Input validation
+          if (!args.text || typeof args.text !== 'string') {
+            return "Error: Invalid input. 'text' must be a string.";
+          }
+          
+          // Tool logic
+          const result = args.text.split('').reverse().join('');
+          
+          // Return string result
+          return result;
+        } catch (error) {
+          return \`Error processing: \${error.message}\`;
+        }
+      }
+
+      If the user shares personal or important information, make sure to record it with the recordFact tool. use retrieveFact when needed. 
+      
+      Use markdown formatting if needed in responses. Use:
+        - **Bold** for important concepts
+        - ## Section Headers
+        - ### Subheaders
+        - Bullet points for lists
+        - Numbered steps for processes
+        - _Italics_ for emphasis
+        Always structure complex answers with clear headers and sections. Never use emojis, rather use ascii faces.`,
+            },
+            ...chatHistory[senderId],
+          ],
+          tools,
+          tool_choice: "auto",
+        });
+
+        break; // Exit the retry loop if the request succeeds
+      } catch (error) {
+        if (
+          error.status === 400 &&
+          error.message.includes("Invalid parameter: messages with role 'tool'")
+        ) {
+          // Handle the specific 400 error
+          console.error(
+            "Invalid message sequence detected. Attempting to recover..."
+          );
+
+          // Remove the last tool message from the chat history
+          const lastMessage =
+            chatHistory[senderId][chatHistory[senderId].length - 1];
+          if (lastMessage && lastMessage.role === "tool") {
+            chatHistory[senderId].pop(); // Remove the problematic tool message
+          }
+
+          retryCount++;
+          if (retryCount >= maxRetries) {
+            throw new Error(
+              "Max retries reached. Unable to recover from invalid message sequence."
+            );
+          }
+        } else {
+          // Re-throw other errors
+          throw error;
+        }
+      }
+    }
+
+    let responseMessage = response.choices[0].message;
+    let directToolResponse = null; // To store direct responses from special tools
+
+    // Add the assistant's message to history first
+    if (responseMessage.content) {
+      chatHistory[senderId].push({
+        role: "assistant",
+        content: responseMessage.content,
+      });
+    }
+
+    // Process tool calls if any
+    while (
+      responseMessage.tool_calls &&
+      responseMessage.tool_calls.length > 0
+    ) {
+      // First add the assistant message with tool_calls to the history
+      // Only add this if we didn't already add a content message
+      if (!responseMessage.content) {
+        chatHistory[senderId].push({
+          role: "assistant",
+          tool_calls: responseMessage.tool_calls,
+          content: null,
+        });
+      }
+
+      // Then process each tool call and add the tool responses
+      const toolResults = [];
+      for (const toolCall of responseMessage.tool_calls) {
+        const toolName = toolCall.function.name;
+        const args = JSON.parse(toolCall.function.arguments);
+
+        console.log(`Executing tool: ${toolName} with args`, args);
+
+        // Check if this is a special tool that should return directly
+        if (toolName === "selfDeliberation") {
+          console.log("Self-deliberation detected - will return directly");
+          const deliberationResult = await selfDeliberation(args.topic);
+
+          // Store the tool result for direct return
+          directToolResponse = deliberationResult;
+
+          // Add the tool response to history immediately after the assistant message with tool_calls
+          chatHistory[senderId].push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: deliberationResult ?? "No output",
+          });
+
+          // Add a final message to history indicating direct return
+          chatHistory[senderId].push({
+            role: "assistant",
+            content: "I've completed a comprehensive analysis on this topic.",
+          });
+
+          // Break out of the tool processing loop
+          break;
+        } else {
+          // Normal tool processing
+          const toolResult = await executeTool(
+            toolName,
+            args,
+            senderId,
+            senderName,
+            senderRole,
+            res
+          );
+
+          // Add each tool response immediately after execution
+          chatHistory[senderId].push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: toolResult ?? "No output",
+          });
+
+          toolResults.push({
+            tool_call_id: toolCall.id,
+            output: toolResult ?? "No output",
+          });
+        }
+      }
+
+      // If we have a direct tool response, break the loop early
+      if (directToolResponse) {
+        break;
+      }
+
+      // Get a new response based on the updated history
+      response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are an AI assistant capable of using tools. Always execute tools if needed before responding.`,
+          },
+          ...chatHistory[senderId],
+        ],
+        tools,
+        tool_choice: "auto",
+      });
+
+      responseMessage = response.choices[0].message;
+
+      // Add the new assistant response to history
+      if (responseMessage.content) {
+        chatHistory[senderId].push({
+          role: "assistant",
+          content: responseMessage.content,
+        });
+      }
+    }
+
+    // Send final response - use direct tool response if available
+    return res.json({
+      senderId,
+      senderName,
+      senderRole: "assistant",
+      message:
+        directToolResponse ||
+        responseMessage.content ||
+        "No response generated",
+    });
+  } catch (error) {
+    console.error("OpenAI API Error:", error);
+    res.status(500).json({ error: "Failed to process AI request" });
+  }
+};
+
+export const getTools = async (req, res) => {
+  try {
+    const formattedTools = tools.map((tool) => ({
+      name: tool.function.name,
+      description: tool.function.description,
+    }));
+
+    res.json(formattedTools);
+  } catch (error) {
+    res.status(500).json({ error: "Error getting tools" });
+  }
+};

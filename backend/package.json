@@ -1,0 +1,25 @@
+{
+  "type": "module",
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.8.2",
+    "bootstrap-icons": "^1.11.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "katex": "^0.16.21",
+    "mongoose": "^8.12.1",
+    "nodemon": "^3.1.9",
+    "openai": "^4.86.2",
+    "vm2": "^3.9.19"
+  }
+}
