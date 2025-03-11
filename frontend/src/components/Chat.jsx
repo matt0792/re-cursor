@@ -5,6 +5,7 @@ import "katex/dist/katex.min.css";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import ToolSettings from "./ToolSettings";
+import OpeningAnimation from "./OpeningAnimation";
 
 const renderer = new marked.Renderer();
 renderer.link = (href, title, text) =>
@@ -65,6 +66,7 @@ const Chat = () => {
   const [loading, setLoading] = useState(false);
   const [tools, setTools] = useState([]);
   const [activeTools, setActiveTools] = useState([]);
+  const [animationOver, setAnimationOver] = useState(false);
 
   useEffect(() => {
     const fetchTools = async () => {
@@ -387,9 +389,14 @@ const Chat = () => {
         {!messages.length > 0 && (
           <div className="chat-placeholder">
             <div className="chat-placeholder-overlay"></div>
-            <div className="chat-placeholder-text">
+            <div
+              className={`chat-placeholder-text ${
+                animationOver ? "shown" : ""
+              }`}
+            >
               <span className="orange">re:</span>cursor
             </div>
+            <OpeningAnimation setAnimationOver={setAnimationOver} />
           </div>
         )}
         <div className="chat-messages" ref={chatMessagesRef}>
@@ -415,7 +422,7 @@ const Chat = () => {
           {loading && <div className="chat-loader">...</div>}
         </div>
 
-        <div className="chat-input-group">
+        <div className={`chat-input-group ${animationOver ? "shown" : ""}`}>
           <input
             type="text"
             placeholder="Message..."

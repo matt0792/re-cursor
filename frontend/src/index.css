@@ -3,4 +3,5 @@ body {
   padding: 0px;
   font-family: monospace;
   overflow: hidden;
+  background-color: rgb(35, 35, 35);
 }

@@ -12,10 +12,12 @@
   "description": "",
   "dependencies": {
     "axios": "^1.8.2",
+    "bcrypt": "^5.1.1",
     "bootstrap-icons": "^1.11.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
     "katex": "^0.16.21",
     "mongoose": "^8.12.1",
     "nodemon": "^3.1.9",

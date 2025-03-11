@@ -1,0 +1,17 @@
+.anim-container {
+  height: 50%;
+  width: 100%;
+  z-index: 50;
+}
+
+.anim-spiral {
+  transform: rotate(180deg);
+}
+
+.anim-blur {
+  position: absolute;
+  height: 100%;
+  width: 100%;
+  z-index: 50;
+  backdrop-filter: blur(3px);
+}

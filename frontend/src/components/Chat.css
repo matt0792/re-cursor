@@ -1,9 +1,8 @@
 .chat {
   display: flex;
   flex-direction: column;
-  width: 100%;
+  width: 80%;
   height: 100%;
-  border: 1px black solid;
   background-color: rgb(35, 35, 35);
 }
 
@@ -12,14 +11,21 @@
   width: 100%;
   align-items: center;
   justify-content: center;
-  height: 60vh;
+  height: 90vh;
   user-select: none;
+  flex-direction: column;
 }
 
 .chat-placeholder-text {
   font-weight: bold;
   color: white;
   font-size: 40px;
+  opacity: 0;
+  transition: all 0.6s ease;
+}
+
+.chat-placeholder-text.shown {
+  opacity: 1;
 }
 
 .chat-placeholder-text .orange {
@@ -39,10 +45,18 @@
   display: flex;
   height: 28px;
   align-items: center;
-  margin-top: auto;
-  padding: 20px;
   gap: 10px;
   user-select: none;
+  z-index: 100;
+  position: fixed;
+  width: 80vw;
+  left: 10vw;
+  bottom: 25px;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+.chat-input-group.shown {
+  opacity: 1;
 }
 
 .chat-input-group .chat-send-button {
@@ -71,7 +85,7 @@
   background-color: rgb(50, 50, 50);
   border: 1px solid rgb(70, 70, 70);
   border-radius: 4px;
-  color: white;
+  color: rgb(255, 255, 255);
   font-size: 14px;
   outline: none;
   transition: all 0.1s ease;
@@ -95,12 +109,13 @@
 
 .chat-messages {
   padding: 20px;
-  color: white;
+  color: rgb(214, 214, 214);
   display: flex;
   flex-direction: column;
   gap: 20px;
-  height: 100%;
+  margin-bottom: 70px;
   overflow-y: scroll;
+  font-size: 16px;
 }
 
 .chat-message {
@@ -117,14 +132,14 @@
     color: rgb(255, 102, 0);
   }
   100% {
-    color: white;
+    color: rgb(255, 255, 255);
   }
 }
 
 .chat-loader {
   display: flex;
   animation: chatLoad 0.3s ease infinite alternate;
-  margin-left: 10px;
+  margin-left: 15px;
 }
 
 @keyframes chatLoad {

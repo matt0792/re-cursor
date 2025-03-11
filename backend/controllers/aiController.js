@@ -60,6 +60,135 @@ const retrieveFacts = (userId) => {
   }
 };
 
+const analyzeLogicProblem = async (args) => {
+  try {
+    // Input validation
+    const requiredParams = [
+      "problem",
+      "entities",
+      "attributes",
+      "clues",
+      "questions",
+    ];
+    for (const param of requiredParams) {
+      if (!args[param]) throw new Error(`Missing required parameter: ${param}`);
+    }
+
+    // Initialize analysis
+    let analysis = ["# Logic Problem Analysis", `**Problem**: ${args.problem}`];
+    const assignments = {};
+    const possibilities = {};
+
+    // Initialize possibilities matrix
+    args.entities.forEach((entity) => {
+      possibilities[entity] = new Set(args.attributes);
+      assignments[entity] = null;
+    });
+
+    // Helper functions
+    const updatePossibilities = (entity, attribute, operation) => {
+      if (operation === "remove") {
+        possibilities[entity].delete(attribute);
+      }
+    };
+
+    const checkContradictions = () => {
+      args.entities.forEach((entity) => {
+        if (possibilities[entity].size === 0) {
+          throw new Error(
+            `Contradiction found: ${entity} has no valid options`
+          );
+        }
+      });
+    };
+
+    // Process clues
+    analysis.push("\n## Step-by-Step Clue Analysis");
+    args.clues.forEach((clue, index) => {
+      analysis.push(`\n### Clue ${index + 1}: ${clue}`);
+
+      // Basic clue parsing (can be expanded)
+      const matchDirect = clue.match(/(\w+)\s*=\s*(\w+)/i);
+      const matchExclusion = clue.match(/(\w+)\s*≠\s*(\w+)/i);
+
+      if (matchDirect) {
+        const [, entity, attribute] = matchDirect;
+        if (!args.entities.includes(entity))
+          throw new Error(`Invalid entity in clue: ${entity}`);
+        if (!args.attributes.includes(attribute))
+          throw new Error(`Invalid attribute in clue: ${attribute}`);
+
+        // Assign directly
+        assignments[entity] = attribute;
+        analysis.push(`- Direct assignment: ${entity} → ${attribute}`);
+
+        // Remove this attribute from others
+        args.entities.forEach((other) => {
+          if (other !== entity) updatePossibilities(other, attribute, "remove");
+        });
+      } else if (matchExclusion) {
+        const [, entity, attribute] = matchExclusion;
+        updatePossibilities(entity, attribute, "remove");
+        analysis.push(`- Exclusion: ${entity} cannot be ${attribute}`);
+      }
+
+      // Update remaining possibilities
+      args.entities.forEach((entity) => {
+        if (!assignments[entity] && possibilities[entity].size === 1) {
+          const determined = [...possibilities[entity]][0];
+          assignments[entity] = determined;
+          analysis.push(`- Deduced: ${entity} must be ${determined}`);
+
+          // Propagate constraint
+          args.entities.forEach((other) => {
+            if (other !== entity)
+              updatePossibilities(other, determined, "remove");
+          });
+        }
+      });
+
+      checkContradictions();
+    });
+
+    // Final assignments
+    analysis.push("\n## Final Analysis");
+    args.entities.forEach((entity) => {
+      analysis.push(
+        `- ${entity}: ${
+          assignments[entity] || Array.from(possibilities[entity]).join(", ")
+        }`
+      );
+    });
+
+    // Check for contradictions
+    if (Object.values(assignments).some((a) => !a)) {
+      analysis.push(
+        "\n⚠️ **Warning**: Problem is underspecified. Multiple solutions may exist."
+      );
+    }
+
+    // Answer questions
+    analysis.push("\n## Questions");
+    args.questions.forEach((question, index) => {
+      analysis.push(`\n**Q${index + 1}**: ${question}`);
+      // Simple question answering - could be enhanced
+      const entityMatch = question.match(/What (color|attribute).*\b(\w+)\?/i);
+      if (entityMatch) {
+        const entity = entityMatch[2];
+        analysis.push(
+          `**Answer**: ${
+            assignments[entity] || "Cannot determine from given clues"
+          }`
+        );
+      }
+    });
+
+    return analysis.join("\n");
+  } catch (error) {
+    return `Logic analysis error: ${error.message}`;
+  }
+};
+
 // Function to create a new tool dynamically
 const createTool = (metadata, code) => {
   try {
@@ -467,6 +596,45 @@ const tools = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "analyzeLogicProblem",
+      description:
+        "Systematically solve logic puzzles using constraint satisfaction. Returns step-by-step analysis.",
+      parameters: {
+        type: "object",
+        properties: {
+          problem: {
+            type: "string",
+            description: "Description of the logic problem",
+          },
+          entities: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "List of entities in the problem (e.g., ['Alice', 'Bob'])",
+          },
+          attributes: {
+            type: "array",
+            items: { type: "string" },
+            description: "Possible attributes/options (e.g., ['Red', 'Blue'])",
+          },
+          clues: {
+            type: "array",
+            items: { type: "string" },
+            description: "List of constraints/clues (e.g., ['Alice ≠ Red'])",
+          },
+          questions: {
+            type: "array",
+            items: { type: "string" },
+            description: "Questions to answer about the problem",
+          },
+        },
+        required: ["problem", "entities", "attributes", "clues", "questions"],
+      },
+    },
+  },
 ];
 
 // let activeToolStore = [];
@@ -508,6 +676,8 @@ const executeTool = async (
         return String(recordFact(args.userId, args.fact));
       case "retrieveFacts":
         return String(retrieveFacts(args.userId));
+      case "analyzeLogicProblem":
+        return String(await analyzeLogicProblem(args));
       default:
         // Handle dynamically created tools
         const tool = tools.find(
@@ -566,7 +736,7 @@ export const answer = async (req, res) => {
           messages: [
             {
               role: "system",
-              content: `You are an AI assistant capable of using tools. Always execute tools if needed before responding. 
+              content: `You are re:cursor, an agent capable of using tools. Always execute tools if needed before responding. 
     If there is no tool available for the user's request, you can create it with the createTool tool.
       
       When creating a new tool, follow these guidelines:
@@ -594,7 +764,7 @@ export const answer = async (req, res) => {
         }
       }
 
-      If the user shares personal or important information, make sure to record it with the recordFact tool. use retrieveFact when needed. 
+      If the user shares personal or important information, or if you notice that they say anything interesting, make sure to record it with the recordFact tool. use retrieveFact when needed. 
       
       Use markdown formatting if needed in responses. Use:
         - **Bold** for important concepts
@@ -603,7 +773,8 @@ export const answer = async (req, res) => {
         - Bullet points for lists
         - Numbered steps for processes
         - _Italics_ for emphasis
-        Always structure complex answers with clear headers and sections. Never use emojis, rather use ascii faces.`,
+        Always structure complex answers with clear headers and sections. Never use emojis, rather use ascii faces.
+        Be curious, suggest new approaches, inspire, create!. `,
             },
             ...chatHistory[senderId],
           ],
