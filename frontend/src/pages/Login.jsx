@@ -14,6 +14,7 @@ const Login = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [refreshReCaptcha, setRefreshReCaptcha] = useState(false);
 
   const handleChange = (e) => {
     setFormData({
@@ -55,6 +56,7 @@ const Login = () => {
       // Redirect to chat page
       navigate("/chat");
     } catch (error) {
+      setRefreshReCaptcha(!refreshReCaptcha);
       setError(error.message);
     } finally {
       setLoading(false);

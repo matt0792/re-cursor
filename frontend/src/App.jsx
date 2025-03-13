@@ -10,11 +10,15 @@ import WaitList from "./pages/WaitList";
 
 // Components
 import AuthWrapper from "./components/AuthWrapper";
+import Cookies from "./components/Cookies";
 
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showCookies, setShowCookies] = useState(true);
+
   return (
     <div className="app">
+      {showCookies && <Cookies setShowCookies={setShowCookies} />}
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />

@@ -928,6 +928,7 @@ export const answer = async (req, res) => {
     let response;
     let retryCount = 0;
     const maxRetries = 3; // Maximum number of retries
+    let originalHistory = [...chatHistory[senderId]];
 
     while (retryCount < maxRetries) {
       try {
@@ -1034,33 +1035,51 @@ Maintain a curious, patient tone focused on user understanding. Admit uncertaint
 
         break; // Exit the retry loop if the request succeeds
       } catch (error) {
-        if (
-          error.status === 400 &&
-          error.message.includes("Invalid parameter: messages with role 'tool'")
-        ) {
-          // Handle the specific 400 error
-          console.error(
-            "Invalid message sequence detected. Attempting to recover..."
-          );
-
-          // Remove the last tool message from the chat history
-          const lastMessage =
-            chatHistory[senderId][chatHistory[senderId].length - 1];
-          if (lastMessage && lastMessage.role === "tool") {
-            chatHistory[senderId].pop(); // Remove the problematic tool message
-          }
-
+        if (error.status === 400) {
+          // More aggressive recovery for 400 errors
           retryCount++;
-          if (retryCount >= maxRetries) {
-            throw new Error(
-              "Max retries reached. Unable to recover from invalid message sequence."
+
+          if (retryCount === 1) {
+            // On first retry, just remove the last message
+            if (chatHistory[senderId].length > 1) {
+              chatHistory[senderId].pop();
+              console.log("Removed last message and retrying...");
+            }
+          } else if (retryCount === 2) {
+            // On second retry, reset to just the user's last message
+            console.log("Resetting chat history to last user message only...");
+            // Filter out only user messages to retain context
+            const userMessages = originalHistory.filter(
+              (msg) => msg.role === "user"
             );
+            chatHistory[senderId] =
+              userMessages.length > 0
+                ? [userMessages[userMessages.length - 1]]
+                : [];
+          } else if (retryCount === 3) {
+            // On third retry, completely reset chat history
+            console.log("Completely resetting chat history...");
+            chatHistory[senderId] = [{ role: "user", content: message }];
           }
+
+          // Continue to the next iteration
         } else {
           // Re-throw other errors
           throw error;
         }
       }
+    }
+
+    if (retryCount >= maxRetries) {
+      // If we've hit max retries, inform the user and use a simple response
+      console.error("Max retries reached. Using fallback response.");
+      return res.json({
+        senderId,
+        senderName,
+        senderRole: "assistant",
+        message:
+          "I'm having trouble processing your request. Could you please rephrase or try again with a different question?",
+      });
     }
 
     let responseMessage = response.choices[0].message;
