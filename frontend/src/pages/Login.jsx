@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Login.css";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
@@ -27,8 +29,8 @@ const Login = () => {
 
     try {
       const endpoint = isLogin
-        ? "http://localhost:3000/auth/login"
-        : "http://localhost:3000/auth/register";
+        ? `${API_BASE_URL}/auth/login`
+        : `${API_BASE_URL}/auth/register`;
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {

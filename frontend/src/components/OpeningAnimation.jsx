@@ -4,7 +4,7 @@ import React, { useRef, useEffect, useState } from "react";
 const generateSpiralPath = (
   startRadius = 35,
   endRadius = 0,
-  rotations = 9,
+  rotations = 7,
   points = 400
 ) => {
   const path = [];
@@ -85,7 +85,7 @@ const OpeningAnimation = ({ setAnimationOver }) => {
         <line
           ref={lineRef}
           x1="-1"
-          y1="2"
+          y1="0.7"
           x2="-1"
           y2="-45"
           stroke="rgb(255, 102, 0)"

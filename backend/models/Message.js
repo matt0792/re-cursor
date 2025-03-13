@@ -1,33 +1,48 @@
 import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema({
-  conversationId: {
-    type: mongoose.Schema.Types.ObjectId,
+  senderId: {
+    type: String,
     required: true,
-    ref: "Conversation",
+    index: true,
   },
-  sender: {
-    id: { type: String, required: true },
-    name: { type: String, required: true },
-    role: {
-      type: String,
-      enum: ["user", "assistant", "system"],
-      required: true,
-    },
+  senderName: {
+    type: String,
+    required: true,
   },
-  message: {
-    text: { type: String, required: true },
+  senderRole: {
+    type: String,
+    enum: ["user", "assistant", "system", "tool"],
+    required: true,
   },
-  timestamp: { type: Date, default: Date.now },
-  metadata: {
-    toolUsed: { type: String, default: null },
-    language: { type: String, default: "en" },
-    isEdited: { type: Boolean, default: false },
-    isDeleted: { type: Boolean, default: false },
+  content: {
+    type: String,
+    required: true,
+  },
+  toolCalls: {
+    type: Array,
+    default: [],
+  },
+  toolCallId: {
+    type: String,
+    default: null,
+  },
+  timestamp: {
+    type: Date,
+    default: Date.now,
+  },
+  conversationId: {
+    type: String,
+    required: true,
+    index: true,
+  },
+  bookmarked: {
+    type: Boolean,
+    default: false,
   },
 });
 
-// Create an index for fast conversation queries
+// Create indexes for faster querying
 messageSchema.index({ conversationId: 1, timestamp: 1 });
 
-export const Message = mongoose.model("Message", messageSchema);
+export default mongoose.model("Message", messageSchema);

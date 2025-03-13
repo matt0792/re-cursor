@@ -3,6 +3,11 @@ import dotenv from "dotenv";
 import axios from "axios";
 import { VM } from "vm2";
 
+import {
+  logMessage,
+  getConversationHistory,
+} from "../middleware/messageLogging.js";
+
 dotenv.config();
 
 const openai = new OpenAI({
@@ -187,6 +192,160 @@ const analyzeLogicProblem = async (args) => {
   } catch (error) {
     return `Logic analysis error: ${error.message}`;
   }
+};
+
+const explainTopic = async (topic) => {
+  console.log(`AI explaining topic: ${topic}`);
+
+  // Helper function to safely parse JSON
+  const safeJsonParse = (jsonString, fallback = {}) => {
+    try {
+      return JSON.parse(jsonString);
+    } catch (error) {
+      console.error("JSON parsing error:", error);
+      return fallback;
+    }
+  };
+
+  // Helper function to ensure string output
+  const ensureString = (value, fallback = "No information available") => {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.join(", ");
+    if (value && typeof value === "object") return JSON.stringify(value);
+    return fallback;
+  };
+
+  // Helper function to generate fallback components
+  const generateFallbackComponents = (topic) => {
+    return [
+      `Core Principle of ${topic}`,
+      `Key Mechanism in ${topic}`,
+      `Fundamental Aspect of ${topic}`,
+    ];
+  };
+
+  // Step 1: Break down into fundamental components
+  const decompositionResponse = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Break down "${topic}" into 3 fundamental components/concepts that are essential for basic understanding. 
+            Return a JSON object with: { "topic": "string", "components": [] }. The components array should JUST be the names of the components, with no additional explanation`,
+      },
+    ],
+    response_format: { type: "json_object" },
+  });
+
+  // Safely parse decomposition
+  const decomposition = safeJsonParse(
+    decompositionResponse.choices[0].message.content,
+    {
+      topic: topic,
+      components: generateFallbackComponents(topic), // Use dynamic fallback
+    }
+  );
+
+  // Ensure components is an array
+  if (!Array.isArray(decomposition.components)) {
+    decomposition.components = generateFallbackComponents(topic);
+  }
+
+  // Step 2: Explain each component in simple terms
+  const componentExplanations = [];
+  for (const component of decomposition.components) {
+    const explanationResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Explain "${component}" in simple terms as part of understanding "${decomposition.topic}".
+              Use analogies and everyday examples. Make sure that every small detail is fully explained in a way that the user can grasp, use jargon if needed, but explain what complicated terms mean. Do not output <pre> or <code> tags unless absolutely necessary. Respond with just the explanation.`,
+        },
+      ],
+    });
+    componentExplanations.push({
+      component: ensureString(component),
+      explanation: ensureString(explanationResponse.choices[0].message.content),
+    });
+  }
+
+  // Step 3: Show how components work together
+  const integrationResponse = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Explain how these components work together to create "${
+          decomposition.topic
+        }":
+            ${componentExplanations.map((e) => `- ${e.component}`).join("\n")}
+            Use a logical step-by-step process. Do not output <pre> or <code> tags unless absolutely necessary. Respond with just the explanation.`,
+      },
+    ],
+  });
+
+  const integrationExplanation = ensureString(
+    integrationResponse.choices[0].message.content,
+    "The components work together in a complex way to form the overall concept."
+  );
+
+  // Step 4: Expand into advanced concepts
+  const expansionResponse = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Based on understanding of "${decomposition.topic}", suggest just the names 2-3 natural extensions or 
+            advanced aspects that build on the fundamentals. Return as JSON: { "extensions": [] }`,
+      },
+    ],
+    response_format: { type: "json_object" },
+  });
+
+  // Safely parse extensions
+  const extensions = safeJsonParse(
+    expansionResponse.choices[0].message.content,
+    {
+      extensions: [
+        `Advanced Application of ${decomposition.topic}`,
+        `Cutting-Edge Research in ${decomposition.topic}`,
+        `Future Trends in ${decomposition.topic}`,
+      ],
+    }
+  ).extensions;
+
+  // Ensure extensions is an array
+  if (!Array.isArray(extensions)) {
+    extensions = [
+      `Advanced Application of ${decomposition.topic}`,
+      `Cutting-Edge Research in ${decomposition.topic}`,
+      `Future Trends in ${decomposition.topic}`,
+    ];
+  }
+
+  // Format final output
+  return `# Comprehensive Explanation of: ${ensureString(decomposition.topic)}
+    
+      ## Fundamental Components
+      ${componentExplanations
+        .map((e) => `### ${e.component}\n${e.explanation}`)
+        .join("\n\n")}
+    
+      ## How It All Fits Together
+      ${integrationExplanation}
+    
+      ## Building Further Understanding
+      ${extensions
+        .map(
+          (e, i) =>
+            `${i + 1}. **${ensureString(
+              e
+            )}** - Suggested area for deeper exploration`
+        )
+        .join("\n")}
+    
+      *Would you like me to elaborate on any of these advanced aspects?*`;
 };
 
 // Function to create a new tool dynamically
@@ -635,6 +794,24 @@ const tools = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "explainTopic",
+      description:
+        "Break down complex topics into fundamental components and build up understanding systematically. Ask for user confirmation before use, and warn that it may take a while.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: {
+            type: "string",
+            description: "The subject to explain in depth",
+          },
+        },
+        required: ["topic"],
+      },
+    },
+  },
 ];
 
 // let activeToolStore = [];
@@ -678,6 +855,8 @@ const executeTool = async (
         return String(retrieveFacts(args.userId));
       case "analyzeLogicProblem":
         return String(await analyzeLogicProblem(args));
+      case "explainTopic":
+        return String(await explainTopic(args.topic));
       default:
         // Handle dynamically created tools
         const tool = tools.find(
@@ -711,10 +890,31 @@ const chatHistory = {};
 // Main AI function
 export const answer = async (req, res) => {
   try {
-    const { senderId, senderName, senderRole, message, activeTools } = req.body;
+    const {
+      senderId,
+      senderName,
+      senderRole,
+      message,
+      activeTools,
+      conversationId,
+    } = req.body;
 
     if (!message || typeof message !== "string") {
       return res.status(400).json({ error: "Message must be a valid string" });
+    }
+
+    // Log the incoming user message
+    await logMessage({
+      senderId,
+      senderName,
+      senderRole,
+      content: message,
+      conversationId: conversationId || senderId,
+    });
+
+    // Initialize chat history if it doesn't exist
+    if (!chatHistory[senderId]) {
+      chatHistory[senderId] = [];
     }
 
     // Initialize chat history if it doesn't exist
@@ -736,10 +936,41 @@ export const answer = async (req, res) => {
           messages: [
             {
               role: "system",
-              content: `You are re:cursor, an agent capable of using tools. Always execute tools if needed before responding. 
-    If there is no tool available for the user's request, you can create it with the createTool tool.
-      
-      When creating a new tool, follow these guidelines:
+              content: `You are re:cursor, a curious and thoughtful AI assistant. Follow these core principles:
+
+1. **Tool Usage**:
+- Always use available tools before responding when appropriate
+- When asked to explain or deliberate on a topic, ALWAYS use the explainTopic or selfDeliberation tool:
+  • Explain what the tool does in simple terms
+  • *Always* ask explicit user permission before executing
+  • Estimate time/complexity ("This analysis may take 2-3 minutes")
+
+2. **Communication Style**:
+- Use clear, conversational English with _occasional_ formatting:
+  • **Bold** for key terms/concepts
+  • Bullet points for lists
+  • Section headers only for long explanations
+- Begin complex answers with a 1-sentence summary
+- Use analogies from everyday life for technical concepts
+
+3. **Error Handling**:
+- Explain errors in plain language:
+  "I couldn't calculate that because the equation seems incomplete."
+- Suggest specific fixes when possible
+- Never show raw error logs to users
+- NEVER use emojis, rather use ascii faces. 
+
+4. **Memory Integration**:
+- Actively use recorded facts when relevant:
+  "Since you mentioned you're a visual learner, here's a diagram..."
+- Ask before recording new personal information
+
+5. **Tool Creation**:
+- When creating tools:
+  • Explain the new capability in simple terms
+  • Provide usage examples
+  • Warn about limitations
+    ALWAYS follow these guidelines:
       1. Ensure your tool function ALWAYS handles input validation
       2. ALWAYS ensure your function returns a string or converts its result to a string
       3. Properly handle errors with try/catch blocks
@@ -764,9 +995,27 @@ export const answer = async (req, res) => {
         }
       }
 
-      If the user shares personal or important information, or if you notice that they say anything interesting, make sure to record it with the recordFact tool. use retrieveFact when needed. 
-      
-      Use markdown formatting if needed in responses. Use:
+6. **Process Transparency**:
+- Briefly explain your workflow:
+  "I'll first analyze the logic puzzle constraints, then..."
+- Show progress during long operations
+  "Processing step 2/3: Validating possible solutions..."
+
+7. **User Control**:
+- Offer options where applicable:
+  "Would you prefer a quick summary or detailed analysis?"
+- Allow interruption of long processes
+- Confirm understanding of complex instructions
+
+Example of good response:
+"Let's analyze this logic puzzle! First, I'll need to:  
+1. **Identify** all constraints from the clues  
+2. **Eliminate** impossible combinations  
+3. **Verify** the remaining options  
+
+This should take about 1 minute. Should I proceed?"
+
+Use markdown formatting if needed in responses. Use:
         - **Bold** for important concepts
         - ## Section Headers
         - ### Subheaders
@@ -774,7 +1023,8 @@ export const answer = async (req, res) => {
         - Numbered steps for processes
         - _Italics_ for emphasis
         Always structure complex answers with clear headers and sections. Never use emojis, rather use ascii faces.
-        Be curious, suggest new approaches, inspire, create!. `,
+
+Maintain a curious, patient tone focused on user understanding. Admit uncertainty and offer verification for critical information. Be curious, suggest new approaches, inspire, create!`,
             },
             ...chatHistory[senderId],
           ],
@@ -816,22 +1066,38 @@ export const answer = async (req, res) => {
     let responseMessage = response.choices[0].message;
     let directToolResponse = null; // To store direct responses from special tools
 
-    // Add the assistant's message to history first
+    // Add the assistant's message to history first + log
     if (responseMessage.content) {
+      await logMessage({
+        senderId,
+        senderName: "AI Assistant",
+        senderRole: "assistant",
+        content: responseMessage.content,
+        conversationId: conversationId || senderId,
+      });
+
       chatHistory[senderId].push({
         role: "assistant",
         content: responseMessage.content,
       });
     }
 
-    // Process tool calls if any
+    // Process tool calls and log them if any
     while (
       responseMessage.tool_calls &&
       responseMessage.tool_calls.length > 0
     ) {
-      // First add the assistant message with tool_calls to the history
-      // Only add this if we didn't already add a content message
+      // Log the assistant message with tool calls
       if (!responseMessage.content) {
+        await logMessage({
+          senderId,
+          senderName: "AI Assistant",
+          senderRole: "assistant",
+          content: "",
+          toolCalls: responseMessage.tool_calls,
+          conversationId: conversationId || senderId,
+        });
+
         chatHistory[senderId].push({
           role: "assistant",
           tool_calls: responseMessage.tool_calls,
@@ -870,6 +1136,27 @@ export const answer = async (req, res) => {
 
           // Break out of the tool processing loop
           break;
+        } else if (toolName === "explainTopic") {
+          console.log("Deep explanation detected - will return directly");
+          const explanationResult = await explainTopic(args.topic);
+
+          // Store the tool result for direct return
+          directToolResponse = explanationResult;
+
+          chatHistory[senderId].push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: explanationResult ?? "No output",
+          });
+
+          // Add a final message to history indicating direct return
+          chatHistory[senderId].push({
+            role: "assistant",
+            content:
+              "I've completed a comprehensive explanation on this topic.",
+          });
+
+          break;
         } else {
           // Normal tool processing
           const toolResult = await executeTool(
@@ -880,6 +1167,15 @@ export const answer = async (req, res) => {
             senderRole,
             res
           );
+
+          await logMessage({
+            senderId,
+            senderName: `Tool: ${toolName}`,
+            senderRole: "tool",
+            content: toolResult || "No output",
+            toolCallId: toolCall.id,
+            conversationId: conversationId || senderId,
+          });
 
           // Add each tool response immediately after execution
           chatHistory[senderId].push({
@@ -918,6 +1214,21 @@ export const answer = async (req, res) => {
 
       // Add the new assistant response to history
       if (responseMessage.content) {
+        if (responseMessage.content) {
+          await logMessage({
+            senderId,
+            senderName: "AI Assistant",
+            senderRole: "assistant",
+            content: responseMessage.content,
+            conversationId: conversationId || senderId,
+          });
+
+          chatHistory[senderId].push({
+            role: "assistant",
+            content: responseMessage.content,
+          });
+        }
+
         chatHistory[senderId].push({
           role: "assistant",
           content: responseMessage.content,

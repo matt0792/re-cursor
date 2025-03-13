@@ -2,6 +2,8 @@ import "./ChatPage.css";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 // Components
 import Chat from "../components/Chat";
 
@@ -15,7 +17,7 @@ const ChatPage = () => {
         const token = localStorage.getItem("token");
         if (!token) throw new Error("No token found");
 
-        const response = await fetch("http://localhost:3000/auth/user-info", {
+        const response = await fetch(`${API_BASE_URL}/auth/user-info`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -42,7 +44,7 @@ const ChatPage = () => {
 
   return (
     <div className="chat-page">
-      <Chat />
+      <Chat userInfo={userInfo} />
     </div>
   );
 };

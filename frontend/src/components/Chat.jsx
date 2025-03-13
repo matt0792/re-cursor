@@ -7,6 +7,8 @@ import DOMPurify from "dompurify";
 import ToolSettings from "./ToolSettings";
 import OpeningAnimation from "./OpeningAnimation";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 const renderer = new marked.Renderer();
 renderer.link = (href, title, text) =>
   `<a target="_blank" rel="noopener noreferrer" href="${href}" title="${title}">${text}</a>`;
@@ -20,46 +22,7 @@ marked.setOptions({
   },
 });
 
-// Function to stream a message letter by letter
-const streamMessage = (message, callback, onCompletion) => {
-  let index = 0;
-  // Adjust interval based on message length - faster for longer messages
-  const interval = setInterval(
-    () => {
-      // For long messages, increment by chunks rather than single character
-      const chunkSize =
-        message.length > 1000
-          ? 100
-          : message.length > 500
-          ? 10
-          : message.length > 200
-          ? 5
-          : 1;
-
-      index += chunkSize;
-      if (index <= message.length) {
-        callback(message.slice(0, index));
-      } else {
-        callback(message); // Ensure we show the complete message
-        clearInterval(interval);
-        if (onCompletion) onCompletion();
-      }
-    },
-    message.length > 50 ? 5 : 20
-  );
-};
-
-const generateUserId = () => {
-  let userId = localStorage.getItem("userId");
-  if (!userId) {
-    userId = `user-${Math.random().toString(36).substr(2, 9)}`;
-    localStorage.setItem("userId", userId);
-  }
-  return userId;
-};
-
-const Chat = () => {
-  const [userId] = useState(generateUserId());
+const Chat = ({ userInfo }) => {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const chatMessagesRef = useRef(null);
@@ -71,7 +34,7 @@ const Chat = () => {
   useEffect(() => {
     const fetchTools = async () => {
       try {
-        const response = await fetch("http://localhost:3000/ai/tools", {
+        const response = await fetch(`${API_BASE_URL}/ai/tools`, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
@@ -266,10 +229,44 @@ const Chat = () => {
     return tempEl.innerHTML;
   };
 
+  // Function to stream a message letter by letter
+  const streamMessage = (message, callback, onCompletion) => {
+    let index = 0;
+    // Adjust interval based on message length - faster for longer messages
+    const interval = setInterval(
+      () => {
+        // For long messages, increment by chunks rather than single character
+        const chunkSize =
+          message.length > 1000
+            ? 100
+            : message.length > 500
+            ? 10
+            : message.length > 200
+            ? 5
+            : 1;
+
+        index += chunkSize;
+        if (index <= message.length) {
+          callback(message.slice(0, index));
+        } else {
+          callback(message); // Ensure we show the complete message
+          clearInterval(interval);
+          if (onCompletion) onCompletion();
+        }
+      },
+      message.length > 50 ? 5 : 20
+    );
+  };
+
   // Function to handle message sending
   const handleSendMessage = async () => {
     if (message.trim() !== "") {
-      const newMessage = { content: "", original: message, isCompleted: false };
+      const newMessage = {
+        content: "",
+        original: message,
+        isCompleted: false,
+        senderRole: "user",
+      };
 
       // Add the user's message to the chat immediately and start typing effect
       setMessages((prevMessages) => [...prevMessages, newMessage]);
@@ -287,16 +284,16 @@ const Chat = () => {
             });
           });
         },
-        () => handleMessageCompletion(messages.length - 1)
+        () => handleMessageCompletion(messages.length)
       );
 
       // Prepare the request body for the backend
       const requestBody = {
-        senderId: userId,
-        senderName: "",
+        senderId: userInfo.id,
+        senderName: userInfo.name,
         senderRole: "user",
         message: message,
-        timeStamp: "2024-03-08T12:00:00Z",
+        timeStamp: new Date().toISOString(),
         metaData: {},
         forceTool: "",
         activeTools: activeTools,
@@ -304,7 +301,7 @@ const Chat = () => {
 
       try {
         setLoading(true);
-        const response = await fetch("http://localhost:3000/ai/answer", {
+        const response = await fetch(`${API_BASE_URL}/ai/answer`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -317,9 +314,15 @@ const Chat = () => {
           const data = await response.json();
 
           // Add the assistant's message and simulate typing effect for it
+          const assistantMsgId = Date.now().toString(); // Generate a unique ID for the message
           setMessages((prevMessages) => [
             ...prevMessages,
-            { content: "", senderRole: "assistant" },
+            {
+              id: assistantMsgId,
+              content: "",
+              senderRole: "assistant",
+              isBookmarked: false, // Initialize bookmark state
+            },
           ]);
 
           // Stream assistant's response
@@ -335,7 +338,7 @@ const Chat = () => {
                 });
               });
             },
-            () => handleMessageCompletion(messages.length - 1)
+            () => handleMessageCompletion(messages.length + 1)
           );
         } else {
           console.error("Error:", response.statusText);
@@ -410,7 +413,9 @@ const Chat = () => {
               } `}
             >
               {msg.senderRole && (
-                <div className="sender-role">{msg.senderRole}</div>
+                <div className="sender-role">
+                  {msg.senderRole === "assistant" ? "assistant" : userInfo.name}
+                </div>
               )}
               <span
                 dangerouslySetInnerHTML={{

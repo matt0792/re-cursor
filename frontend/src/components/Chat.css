@@ -100,11 +100,6 @@
 
 .chat-input-group .chat-send-button:hover {
   background-color: rgb(255, 122, 20);
-  transform: translateY(-1px);
-}
-
-.chat-input-group .chat-send-button:active {
-  transform: translateY(1px);
 }
 
 .chat-messages {
