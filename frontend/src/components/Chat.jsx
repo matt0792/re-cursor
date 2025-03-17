@@ -6,6 +6,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import ToolSettings from "./ToolSettings";
 import OpeningAnimation from "./OpeningAnimation";
+import Scripter from "./Scripter";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -380,6 +381,7 @@ const Chat = ({ userInfo }) => {
 
   return (
     <>
+      {/* <Scripter /> */}
       <div className="chat">
         {messages.length > 0 && (
           <ToolSettings

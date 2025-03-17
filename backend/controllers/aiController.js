@@ -879,68 +879,11 @@ const executeTool = async (
 
 const chatHistory = {};
 
-// const updateActiveTools = (activeTools) => {
-//   if (Array.isArray(activeTools)) {
-//     activeToolStore = activeTools;
-//   }
-// };
-
-// console.log(activeToolStore);
-
-// Main AI function
-export const answer = async (req, res) => {
-  try {
-    const {
-      senderId,
-      senderName,
-      senderRole,
-      message,
-      activeTools,
-      conversationId,
-    } = req.body;
-
-    if (!message || typeof message !== "string") {
-      return res.status(400).json({ error: "Message must be a valid string" });
-    }
-
-    // Log the incoming user message
-    await logMessage({
-      senderId,
-      senderName,
-      senderRole,
-      content: message,
-      conversationId: conversationId || senderId,
-    });
-
-    // Initialize chat history if it doesn't exist
-    if (!chatHistory[senderId]) {
-      chatHistory[senderId] = [];
-    }
-
-    // Initialize chat history if it doesn't exist
-    if (!chatHistory[senderId]) {
-      chatHistory[senderId] = [];
-    }
-
-    // Append user message to history
-    chatHistory[senderId].push({ role: senderRole, content: message });
-
-    let response;
-    let retryCount = 0;
-    const maxRetries = 3; // Maximum number of retries
-    let originalHistory = [...chatHistory[senderId]];
-
-    while (retryCount < maxRetries) {
-      try {
-        response = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: `You are re:cursor, a curious and thoughtful AI assistant. Follow these core principles:
+const systemPrompt = `You are re:cursor, a curious and thoughtful AI assistant. Follow these core principles:
 
 1. **Tool Usage**:
 - Always use available tools before responding when appropriate
+- Always make sure that the user's prompt is fully answered or carried out. 
 - When asked to explain or deliberate on a topic, ALWAYS use the explainTopic or selfDeliberation tool:
   • Explain what the tool does in simple terms
   • *Always* ask explicit user permission before executing
@@ -1023,32 +966,65 @@ Use markdown formatting if needed in responses. Use:
         - Bullet points for lists
         - Numbered steps for processes
         - _Italics_ for emphasis
-        Always structure complex answers with clear headers and sections. Never use emojis, rather use ascii faces.
+        Always structure complex answers with clear headers and sections. Never use emojis.
 
-Maintain a curious, patient tone focused on user understanding. Admit uncertainty and offer verification for critical information. Be curious, suggest new approaches, inspire, create!`,
-            },
+Maintain a curious, patient tone focused on user understanding. Admit uncertainty and offer verification for critical information. Be curious, suggest new approaches, inspire, create!`;
+
+// Main AI function
+export const answer = async (req, res) => {
+  try {
+    const {
+      senderId,
+      senderName,
+      senderRole,
+      message,
+      activeTools,
+      conversationId,
+    } = req.body;
+
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({ error: "Message must be a valid string" });
+    }
+
+    await logMessage({
+      senderId,
+      senderName,
+      senderRole,
+      content: message,
+      conversationId: conversationId || senderId,
+    });
+
+    if (!chatHistory[senderId]) {
+      chatHistory[senderId] = [];
+    }
+
+    chatHistory[senderId].push({ role: senderRole, content: message });
+
+    let response;
+    let retryCount = 0;
+    const maxRetries = 3;
+    const originalHistory = [...chatHistory[senderId]];
+
+    while (retryCount < maxRetries) {
+      try {
+        response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
             ...chatHistory[senderId],
           ],
           tools,
           tool_choice: "auto",
         });
-
-        break; // Exit the retry loop if the request succeeds
+        break;
       } catch (error) {
         if (error.status === 400) {
-          // More aggressive recovery for 400 errors
           retryCount++;
-
           if (retryCount === 1) {
-            // On first retry, just remove the last message
             if (chatHistory[senderId].length > 1) {
               chatHistory[senderId].pop();
-              console.log("Removed last message and retrying...");
             }
           } else if (retryCount === 2) {
-            // On second retry, reset to just the user's last message
-            console.log("Resetting chat history to last user message only...");
-            // Filter out only user messages to retain context
             const userMessages = originalHistory.filter(
               (msg) => msg.role === "user"
             );
@@ -1057,35 +1033,27 @@ Maintain a curious, patient tone focused on user understanding. Admit uncertaint
                 ? [userMessages[userMessages.length - 1]]
                 : [];
           } else if (retryCount === 3) {
-            // On third retry, completely reset chat history
-            console.log("Completely resetting chat history...");
             chatHistory[senderId] = [{ role: "user", content: message }];
           }
-
-          // Continue to the next iteration
         } else {
-          // Re-throw other errors
           throw error;
         }
       }
     }
 
     if (retryCount >= maxRetries) {
-      // If we've hit max retries, inform the user and use a simple response
-      console.error("Max retries reached. Using fallback response.");
       return res.json({
         senderId,
         senderName,
         senderRole: "assistant",
         message:
-          "I'm having trouble processing your request. Could you please rephrase or try again with a different question?",
+          "I'm having trouble processing your request. Please try again.",
       });
     }
 
     let responseMessage = response.choices[0].message;
-    let directToolResponse = null; // To store direct responses from special tools
+    let directToolResponse = null;
 
-    // Add the assistant's message to history first + log
     if (responseMessage.content) {
       await logMessage({
         senderId,
@@ -1094,19 +1062,13 @@ Maintain a curious, patient tone focused on user understanding. Admit uncertaint
         content: responseMessage.content,
         conversationId: conversationId || senderId,
       });
-
       chatHistory[senderId].push({
         role: "assistant",
         content: responseMessage.content,
       });
     }
 
-    // Process tool calls and log them if any
-    while (
-      responseMessage.tool_calls &&
-      responseMessage.tool_calls.length > 0
-    ) {
-      // Log the assistant message with tool calls
+    while (responseMessage.tool_calls?.length > 0) {
       if (!responseMessage.content) {
         await logMessage({
           senderId,
@@ -1116,7 +1078,6 @@ Maintain a curious, patient tone focused on user understanding. Admit uncertaint
           toolCalls: responseMessage.tool_calls,
           conversationId: conversationId || senderId,
         });
-
         chatHistory[senderId].push({
           role: "assistant",
           tool_calls: responseMessage.tool_calls,
@@ -1124,68 +1085,28 @@ Maintain a curious, patient tone focused on user understanding. Admit uncertaint
         });
       }
 
-      // Then process each tool call and add the tool responses
-      const toolResults = [];
-      for (const toolCall of responseMessage.tool_calls) {
+      const toolPromises = responseMessage.tool_calls.map(async (toolCall) => {
         const toolName = toolCall.function.name;
         const args = JSON.parse(toolCall.function.arguments);
+        let toolResult;
 
-        console.log(`Executing tool: ${toolName} with args`, args);
-
-        // Check if this is a special tool that should return directly
-        if (toolName === "selfDeliberation") {
-          console.log("Self-deliberation detected - will return directly");
-          const deliberationResult = await selfDeliberation(args.topic);
-
-          // Store the tool result for direct return
-          directToolResponse = deliberationResult;
-
-          // Add the tool response to history immediately after the assistant message with tool_calls
-          chatHistory[senderId].push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: deliberationResult ?? "No output",
-          });
-
-          // Add a final message to history indicating direct return
-          chatHistory[senderId].push({
-            role: "assistant",
-            content: "I've completed a comprehensive analysis on this topic.",
-          });
-
-          // Break out of the tool processing loop
-          break;
-        } else if (toolName === "explainTopic") {
-          console.log("Deep explanation detected - will return directly");
-          const explanationResult = await explainTopic(args.topic);
-
-          // Store the tool result for direct return
-          directToolResponse = explanationResult;
-
-          chatHistory[senderId].push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: explanationResult ?? "No output",
-          });
-
-          // Add a final message to history indicating direct return
-          chatHistory[senderId].push({
-            role: "assistant",
-            content:
-              "I've completed a comprehensive explanation on this topic.",
-          });
-
-          break;
-        } else {
-          // Normal tool processing
-          const toolResult = await executeTool(
-            toolName,
-            args,
-            senderId,
-            senderName,
-            senderRole,
-            res
-          );
+        try {
+          if (toolName === "selfDeliberation") {
+            toolResult = await selfDeliberation(args.topic);
+            directToolResponse = toolResult;
+          } else if (toolName === "explainTopic") {
+            toolResult = await explainTopic(args.topic);
+            directToolResponse = toolResult;
+          } else {
+            toolResult = await executeTool(
+              toolName,
+              args,
+              senderId,
+              senderName,
+              senderRole,
+              res
+            );
+          }
 
           await logMessage({
             senderId,
@@ -1196,33 +1117,38 @@ Maintain a curious, patient tone focused on user understanding. Admit uncertaint
             conversationId: conversationId || senderId,
           });
 
-          // Add each tool response immediately after execution
           chatHistory[senderId].push({
             role: "tool",
             tool_call_id: toolCall.id,
             content: toolResult ?? "No output",
           });
 
-          toolResults.push({
+          return toolResult;
+        } catch (toolError) {
+          console.error(`Tool ${toolName} execution failed:`, toolError);
+          chatHistory[senderId].push({
+            role: "tool",
             tool_call_id: toolCall.id,
-            output: toolResult ?? "No output",
+            content: "Tool execution failed",
           });
+          return null;
         }
-      }
+      });
 
-      // If we have a direct tool response, break the loop early
+      await Promise.all(toolPromises);
+
       if (directToolResponse) {
+        chatHistory[senderId].push({
+          role: "assistant",
+          content: "I've completed the requested analysis.",
+        });
         break;
       }
 
-      // Get a new response based on the updated history
       response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: `You are an AI assistant capable of using tools. Always execute tools if needed before responding.`,
-          },
+          { role: "system", content: systemPrompt },
           ...chatHistory[senderId],
         ],
         tools,
@@ -1231,23 +1157,14 @@ Maintain a curious, patient tone focused on user understanding. Admit uncertaint
 
       responseMessage = response.choices[0].message;
 
-      // Add the new assistant response to history
       if (responseMessage.content) {
-        if (responseMessage.content) {
-          await logMessage({
-            senderId,
-            senderName: "AI Assistant",
-            senderRole: "assistant",
-            content: responseMessage.content,
-            conversationId: conversationId || senderId,
-          });
-
-          chatHistory[senderId].push({
-            role: "assistant",
-            content: responseMessage.content,
-          });
-        }
-
+        await logMessage({
+          senderId,
+          senderName: "AI Assistant",
+          senderRole: "assistant",
+          content: responseMessage.content,
+          conversationId: conversationId || senderId,
+        });
         chatHistory[senderId].push({
           role: "assistant",
           content: responseMessage.content,
@@ -1255,19 +1172,15 @@ Maintain a curious, patient tone focused on user understanding. Admit uncertaint
       }
     }
 
-    // Send final response - use direct tool response if available
     return res.json({
       senderId,
       senderName,
       senderRole: "assistant",
-      message:
-        directToolResponse ||
-        responseMessage.content ||
-        "No response generated",
+      message: directToolResponse || responseMessage.content || "No response",
     });
   } catch (error) {
     console.error("OpenAI API Error:", error);
-    res.status(500).json({ error: "Failed to process AI request" });
+    return res.status(500).json({ error: "Failed to process AI request" });
   }
 };
 

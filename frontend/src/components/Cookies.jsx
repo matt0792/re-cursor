@@ -9,7 +9,7 @@ const Cookies = ({ setShowCookies }) => {
     <div className="cookies-card">
       <div className="cookie-heading">Cookie Policy</div>
       <div className="cookie-para">
-        This website requires cookies to provide all of it's features.
+        This website requires cookies to provide key features.
       </div>
       <div className="button-wrapper">
         <button className="accept cookie-button" onClick={() => hideCookies()}>
